@@ -11,9 +11,7 @@ pub fn init(code_str: []const u8, path: ?[]const u8, allocator: ?std.mem.Allocat
     const file_name = if (empty_source_flag) blk: {
         var buf: [16]u8 = undefined;
         break :blk try std.fmt.bufPrint(buf[0..], comptime "{s}.IB", .{code_str});
-        // break :blk buf;
     } else code_str;
-    // defer if (empty_source_flag) alloc.free(file_name);
     const file_path = try Bond.getSavePath(file_name, path, alloc);
     defer alloc.free(file_path);
     const bond = try Bond.readPath(file_path, alloc);
