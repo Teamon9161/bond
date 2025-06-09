@@ -50,13 +50,13 @@ pub fn build(b: *std.Build) void {
 
     // // 添加测试过滤器支持
     // const test_filter = b.option([]const u8, "test-filter", "Skip tests that do not match filter");
-    const test_filters = b.option([]const []const u8, "test-filter", "Skip tests that do not match any filter") orelse &[0][]const u8{};
+    // const test_filters = b.option([]const []const u8, "test-filter", "Skip tests that do not match any filter") orelse &[0][]const u8{};
 
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
     const lib_unit_tests = b.addTest(.{
         .root_module = lib_mod,
-        .filters = test_filters,
+        // .filters = test_filters,
     });
 
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);

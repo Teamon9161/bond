@@ -1,5 +1,15 @@
 const std = @import("std");
 
+fn makeJsonParse(comptime T: type) fn (std.mem.Allocator, anytype, std.json.ParseOptions) anyerror!T {
+    return struct {
+        fn impl(allocator: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) !T {
+            const str = try std.json.innerParse([]const u8, allocator, source, options);
+            return T.parse(str) catch {
+                return error.InvalidEnumTag;
+            };
+        }
+    }.impl;
+}
 /// 市场类型
 pub const Market = enum(u8) {
     /// 银行间
@@ -13,6 +23,8 @@ pub const Market = enum(u8) {
     /// 深交所（同义词）
     sz = 4,
 
+    pub const jsonParse = makeJsonParse(@This());
+
     pub fn parse(str: []const u8) !@This() {
         if (std.mem.eql(u8, str, "IB")) {
             return .ib;
@@ -23,13 +35,6 @@ pub const Market = enum(u8) {
         } else {
             return error.InvalidMarket;
         }
-    }
-
-    pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) !@This() {
-        const str = try std.json.innerParse([]const u8, allocator, source, options);
-        return @This().parse(str) catch {
-            return error.InvalidEnumTag;
-        };
     }
 };
 
@@ -54,6 +59,8 @@ pub const CouponType = enum(u8) {
     /// 一次性付息
     one_time = 2,
 
+    pub const jsonParse = makeJsonParse(@This());
+
     pub fn parse(str: []const u8) !@This() {
         if (std.mem.eql(u8, str, "Coupon_Bear")) {
             return .coupon_bear;
@@ -64,13 +71,6 @@ pub const CouponType = enum(u8) {
         } else {
             return error.InvalidCouponType;
         }
-    }
-
-    pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) !@This() {
-        const str = try std.json.innerParse([]const u8, allocator, source, options);
-        return @This().parse(str) catch {
-            return error.InvalidEnumTag;
-        };
     }
 };
 
@@ -85,6 +85,8 @@ pub const InterestType = enum(u8) {
     /// 零息
     zero = 3,
 
+    pub const jsonParse = makeJsonParse(@This());
+
     pub fn parse(str: []const u8) !@This() {
         if (std.mem.eql(u8, str, "Fixed")) {
             return .fixed;
@@ -97,13 +99,6 @@ pub const InterestType = enum(u8) {
         } else {
             return error.InvalidInterestType;
         }
-    }
-
-    pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) !@This() {
-        const str = try std.json.innerParse([]const u8, allocator, source, options);
-        return @This().parse(str) catch {
-            return error.InvalidEnumTag;
-        };
     }
 };
 
@@ -152,10 +147,5 @@ pub const BondDayCount = enum(u8) {
         }
     }
 
-    pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) !@This() {
-        const str = try std.json.innerParse([]const u8, allocator, source, options);
-        return @This().parse(str) catch {
-            return error.InvalidEnumTag;
-        };
-    }
+    pub const jsonParse = makeJsonParse(@This());
 };

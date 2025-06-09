@@ -1,58 +1,39 @@
-pub const enums = @import("enums.zig");
-pub const Date = @import("date.zig").Date;
-pub const Market = enums.Market;
-pub const CouponType = enums.CouponType;
-pub const InterestType = enums.InterestType;
-pub const BondDayCount = enums.BondDayCount;
-pub const allocator = @import("../root.zig").allocator;
 const std = @import("std");
 const json = std.json;
 
-/// 债券结构体
-pub const Bond = struct {
-    bond_code: []const u8, // 债券代码
-    abbr: []const u8, // 债券简称
-    cp_rate_1st: f64, // 票面利率
-    inst_freq: i32, // 年付息次数
-    carry_date: Date, // 起息日
-    maturity_date: Date, // 到期日
-    mkt: Market = .ib, // 市场
-    par_value: f64 = 100.0, // 债券面值
-    cp_type: CouponType = .coupon_bear, // 息票品种
-    interest_type: InterestType = .fixed, // 息票利率类型
-    base_rate: ?f64 = null, // 基准利率
-    rate_spread: ?f64 = null, // 固定利差
-    day_count: BondDayCount = .act_365, // 计息基准
+pub const enums = @import("enums.zig");
+const Date = @import("Date.zig");
+const Bond = @This();
 
-    /// 获取债券代码（不包含交易所后缀）
-    pub fn code(self: *const Bond) []const u8 {
-        if (std.mem.indexOf(u8, self.bond_code, ".")) |dot_index| {
-            return self.bond_code[0..dot_index];
-        }
-        return self.bond_code;
+const Market = enums.Market;
+const CouponType = enums.CouponType;
+const InterestType = enums.InterestType;
+const BondDayCount = enums.BondDayCount;
+const allocator = @import("../root.zig").allocator;
+
+bond_code: []const u8, // 债券代码
+abbr: []const u8, // 债券简称
+cp_rate_1st: f64, // 票面利率
+inst_freq: i32, // 年付息次数
+carry_date: Date, // 起息日
+maturity_date: Date, // 到期日
+mkt: Market = .ib, // 市场
+par_value: f64 = 100.0, // 债券面值
+cp_type: CouponType = .coupon_bear, // 息票品种
+interest_type: InterestType = .fixed, // 息票利率类型
+base_rate: ?f64 = null, // 基准利率
+rate_spread: ?f64 = null, // 固定利差
+day_count: BondDayCount = .act_365, // 计息基准
+
+/// 获取债券代码（不包含交易所后缀）
+pub fn code(self: *const Bond) []const u8 {
+    if (std.mem.indexOf(u8, self.bond_code, ".")) |dot_index| {
+        return self.bond_code[0..dot_index];
     }
+    return self.bond_code;
+}
 
-    /// 释放分配的内存
-    pub fn deinit(self: *Bond) void {
-        allocator.free(self.bond_code);
-        allocator.free(self.abbr);
-    }
-
-    pub fn from_json(json_str: []const u8) !Bond {
-        const parsed = try json.parseFromSlice(@This(), allocator, json_str, .{});
-        defer parsed.deinit();
-
-        var bond = parsed.value;
-
-        // 复制字符串字段到持久内存
-        bond.bond_code = try allocator.dupe(u8, bond.bond_code);
-        bond.abbr = try allocator.dupe(u8, bond.abbr);
-
-        return bond;
-    }
-};
-
-test "bond_init" {
+test "bond init" {
     // 创建一个债券实例
     const bond = Bond{
         .bond_code = "123456.IB", // 债券代码
@@ -66,7 +47,26 @@ test "bond_init" {
     try std.testing.expectEqualStrings(bond.code(), "123456");
 }
 
-test "bond_from_json" {
+/// 释放分配的内存
+pub fn deinit(self: *Bond) void {
+    allocator.free(self.bond_code);
+    allocator.free(self.abbr);
+}
+
+pub fn fromJson(json_str: []const u8) !Bond {
+    const parsed = try json.parseFromSlice(@This(), allocator, json_str, .{});
+    defer parsed.deinit();
+
+    var bond = parsed.value;
+
+    // 复制字符串字段到持久内存
+    bond.bond_code = try allocator.dupe(u8, bond.bond_code);
+    bond.abbr = try allocator.dupe(u8, bond.abbr);
+
+    return bond;
+}
+
+test "bond from_json" {
     const json_str =
         \\{
         \\    "bond_code": "2400006.IB",
@@ -85,7 +85,7 @@ test "bond_from_json" {
         \\}
     ;
 
-    var bond = try Bond.from_json(json_str);
+    var bond = try Bond.fromJson(json_str);
     defer bond.deinit();
 
     try std.testing.expectEqualStrings("2400006.IB", bond.bond_code);
@@ -109,4 +109,23 @@ test "bond_from_json" {
     try std.testing.expectEqual(@as(i32, 2054), bond.maturity_date.year);
     try std.testing.expectEqual(@as(u4, 9), bond.maturity_date.month);
     try std.testing.expectEqual(@as(u5, 25), bond.maturity_date.day);
+}
+
+pub fn readPath(path: []const u8) !Bond {
+    const file = try std.fs.cwd().openFile(path, .{});
+    defer file.close();
+
+    const contents = try file.readToEndAlloc(allocator, 512);
+    defer allocator.free(contents);
+
+    return try Bond.fromJson(contents);
+}
+
+test "bond readPath" {
+    var bond = try Bond.readPath("test/data/2400006.IB.json");
+    defer bond.deinit();
+
+    try std.testing.expectEqualStrings("2400006.IB", bond.bond_code);
+    try std.testing.expectEqualStrings("2400006", bond.code());
+    try std.testing.expectEqualStrings("24特别国债06", bond.abbr);
 }
