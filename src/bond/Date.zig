@@ -41,3 +41,7 @@ test "date jsonParse" {
     defer res.deinit();
     try std.testing.expectEqual(res.value.date.year, 2024);
 }
+
+comptime {
+    std.testing.refAllDecls(@This());
+}

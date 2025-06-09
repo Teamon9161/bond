@@ -2,19 +2,22 @@
 //! you are making an executable, the convention is to delete this file and
 //! start with main.zig instead.
 const std = @import("std");
+const builtin = @import("builtin");
 
 pub const Bond = @import("bond/Bond.zig");
 pub const enums = @import("bond/enums.zig");
 pub const Date = @import("bond/Date.zig");
 
-// var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-// pub const allocator = gpa.allocator();
+var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
 
-pub const allocator = std.testing.allocator;
+pub const ALLOC = if (@import("builtin").is_test)
+    std.testing.allocator
+else switch (builtin.mode) {
+    .Debug, .ReleaseSafe => debug_allocator.allocator(),
+    .ReleaseFast, .ReleaseSmall => std.heap.smp_allocator,
+};
 
-// pub const Bond = bond.Bond;
-// pub const enums = bond.enums;
-// pub const Date = bond.Date;
+// pub const test_allocator = if (@import("builtin").is_test) std.testing.allocator else null;
 
 comptime {
     std.testing.refAllDecls(@This());

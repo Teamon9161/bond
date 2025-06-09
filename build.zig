@@ -13,7 +13,9 @@ pub fn build(b: *std.Build) void {
     // Standard optimization options allow the person running `zig build` to select
     // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall. Here we do not
     // set a preferred release mode, allowing the user to decide how to optimize.
-    const optimize = b.standardOptimizeOption(.{});
+    const optimize = b.standardOptimizeOption(.{
+        .preferred_optimize_mode = .Debug,
+    });
 
     // This creates a "module", which represents a collection of source files alongside
     // some compilation options, such as optimization mode and linked system libraries.
@@ -42,15 +44,12 @@ pub fn build(b: *std.Build) void {
         .name = "bond",
         .root_module = lib_mod,
     });
+    // lib.linkLibC();
 
     // This declares intent for the library to be installed into the standard
     // location when the user invokes the "install" step (the default step when
     // running `zig build`).
     b.installArtifact(lib);
-
-    // // 添加测试过滤器支持
-    // const test_filter = b.option([]const u8, "test-filter", "Skip tests that do not match filter");
-    // const test_filters = b.option([]const []const u8, "test-filter", "Skip tests that do not match any filter") orelse &[0][]const u8{};
 
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
@@ -58,6 +57,7 @@ pub fn build(b: *std.Build) void {
         .root_module = lib_mod,
         // .filters = test_filters,
     });
+    // lib_unit_tests.linkLibC();
 
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
 
