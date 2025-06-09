@@ -6,7 +6,7 @@ const builtin = @import("builtin");
 
 pub const Bond = @import("bond/Bond.zig");
 pub const enums = @import("bond/enums.zig");
-pub const Date = @import("bond/Date.zig");
+pub const Date = @import("Date.zig");
 
 var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
 

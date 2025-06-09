@@ -42,6 +42,48 @@ test "date jsonParse" {
     try std.testing.expectEqual(res.value.date.year, 2024);
 }
 
+pub fn cmp(self: Date, other: Date) std.math.Order {
+    if (self.year > other.year) return .gt;
+    if (self.year < other.year) return .lt;
+    if (self.month > other.month) return .gt;
+    if (self.month < other.month) return .lt;
+    if (self.day > other.day) return .gt;
+    if (self.day < other.day) return .lt;
+    return .eq;
+}
+
+pub fn eq(self: Date, other: Date) bool {
+    return self.cmp(other) == .eq;
+}
+
+pub fn lt(self: Date, other: Date) bool {
+    return self.cmp(other) == .lt;
+}
+
+pub fn lte(self: Date, other: Date) bool {
+    const r = self.cmp(other);
+    return r == .eq or r == .lt;
+}
+
+pub fn gt(self: Date, other: Date) bool {
+    return self.cmp(other) == .gt;
+}
+
+pub fn gte(self: Date, other: Date) bool {
+    const r = self.cmp(other);
+    return r == .eq or r == .gt;
+}
+
+pub fn formatIso(self: Date, buf: []u8) ![]u8 {
+    return std.fmt.bufPrint(buf, "{:0>4}-{:0>2}-{:0>2}", .{ self.year, self.month, self.day });
+}
+
+test "date formatIso" {
+    var buf: [11]u8 = undefined;
+    const date = try Date.create(2024, 9, 25);
+    try std.testing.expectEqualStrings("2024-09-25", try date.formatIso(buf[0..]));
+}
+
 comptime {
     std.testing.refAllDecls(@This());
 }

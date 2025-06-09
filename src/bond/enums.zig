@@ -44,7 +44,6 @@ test "Market.jsonParse" {
         \\    "mkt": "SH"
         \\}
     ;
-    // const typ = struct { mkt: Market };
     const res = try std.json.parseFromSlice(struct { mkt: Market }, std.testing.allocator, bytes, .{});
     defer res.deinit();
     try std.testing.expectEqual(res.value.mkt, .sse);
