@@ -59,13 +59,6 @@ const WIND_LIB_PATH = if (builtin.os.tag == .linux)
 else
     "/Applications/Wind API.app/Contents/Frameworks/libWind.QuantData.dylib";
 
-// Wind API function types
-// const WindStartFn = fn ([*:0]const u8, i32, i32) callconv(.C) i32;
-// const WindStopFn = fn () callconv(.C) i32;
-// const WindIsConnectedFn = fn () callconv(.C) i32;
-// const WindWssFn = fn ([*:0]const u8, [*:0]const u8, [*:0]const u8) callconv(.C) *WindApiOut;
-// const WindFreeDataFn = fn (*WindApiOut) callconv(.C) void;
-
 // Wrapper for Wind library
 pub const Wind = struct {
     // Library handles
@@ -73,6 +66,7 @@ pub const Wind = struct {
     wind_quant_lib: ?*anyopaque = null,
 
     // Function pointers
+    setLongValue: ?*const fn (i32, i32) callconv(.C) void = null,
     start: ?*const fn ([*:0]const u8, i32, i32) callconv(.C) i32 = null,
     stop: ?*const fn () callconv(.C) i32 = null,
     isConnected: ?*const fn () callconv(.C) i32 = null,
@@ -95,6 +89,11 @@ pub const Wind = struct {
             std.debug.print("Failed to load Wind Quant library: {s}\n", .{c.dlerror()});
             _ = c.dlclose(wind.wind_lib.?);
             return error.LibraryLoadFailed;
+        }
+
+        wind.setLongValue = @ptrCast(@alignCast(c.dlsym(wind.wind_lib.?, "setLongValue")));
+        if (wind.setLongValue == null) {
+            std.debug.print("Failed to load 'setLongValue' function: {s}\n", .{c.dlerror()});
         }
 
         // Load function pointers
@@ -158,6 +157,11 @@ pub const Wind = struct {
     // Connect to Wind API
     pub fn login(self: *Wind) !void {
         if (self.start) |start_fn| {
+            if (self.setLongValue) |setLongValue_fn| {
+                setLongValue_fn(6433, 94645);
+            } else {
+                return error.setLongValueNotLoaded;
+            }
             const options = "";
             const result = start_fn(options, 120, 94645);
             if (result != 0) {
