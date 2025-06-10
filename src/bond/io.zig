@@ -115,6 +115,63 @@ test "bond getSavePath" {
     try std.testing.expectEqualStrings("bonds_info/2400006.IB.json", path3);
 }
 
+pub fn save(self: *const Bond, path: []const u8, allocator: ?std.mem.Allocator) !void {
+    const alloc = allocator orelse ALLOC;
+
+    // 检查路径是目录还是文件
+    const path_stat = std.fs.cwd().statFile(path) catch |err| switch (err) {
+        error.FileNotFound => null, // 文件不存在，我们将创建它
+        else => return err,
+    };
+
+    var free_path_flag = false;
+
+    // 确定最终的文件路径
+    const final_path = if (path_stat) |stat| blk: {
+        if (stat.kind == .directory) {
+            // 如果是目录，在目录中添加债券代码的JSON文件名
+            var buf: [32]u8 = undefined;
+            const file_name = try std.fmt.bufPrint(buf[0..], "{s}.json", .{self.bond_code});
+            break :blk try std.fs.path.join(alloc, &.{ path, file_name });
+        } else {
+            // 如果是文件，直接使用该路径
+            free_path_flag = true;
+            break :blk path;
+        }
+    } else blk: {
+        // 文件不存在，检查路径是否看起来像目录（以'/'结尾）或文件
+        if (std.mem.endsWith(u8, path, "/") or std.mem.endsWith(u8, path, "\\")) {
+            // 看起来像目录路径
+            var buf: [32]u8 = undefined;
+            const file_name = try std.fmt.bufPrint(buf[0..], "{s}.json", .{self.bond_code});
+            break :blk try std.fs.path.join(alloc, &.{ path, file_name });
+        } else {
+            // 看起来像文件路径
+            free_path_flag = true;
+            break :blk path;
+        }
+    };
+    defer if (free_path_flag) alloc.free(final_path);
+
+    // 创建父目录（如果不存在）
+    if (std.fs.path.dirname(final_path)) |parent_dir| {
+        std.fs.cwd().makePath(parent_dir) catch |err| switch (err) {
+            error.PathAlreadyExists => {}, // 目录已存在，忽略错误
+            else => return err,
+        };
+    }
+
+    // 创建文件并写入债券数据
+    const file = try std.fs.cwd().createFile(final_path, .{});
+    defer file.close();
+
+    // 将债券序列化为JSON
+    const json_string = try std.json.stringifyAlloc(alloc, self, .{ .whitespace = .indent_2 });
+    defer alloc.free(json_string);
+
+    try file.writeAll(json_string);
+}
+
 comptime {
     std.testing.refAllDecls(@This());
 }
