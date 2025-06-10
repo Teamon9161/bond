@@ -7,6 +7,8 @@ const Date = @import("../Date.zig");
 const attr = @import("attr.zig");
 /// io methods
 const io = @import("io.zig");
+/// calculation methods
+const calc = @import("calc.zig");
 
 const Bond = @This();
 const Market = enums.Market;
@@ -15,8 +17,8 @@ const InterestType = enums.InterestType;
 const BondDayCount = enums.BondDayCount;
 const ALLOC = @import("../root.zig").ALLOC;
 
-bond_code: []const u8, // 债券代码（包含交易所后缀）
-abbr: []const u8, // 债券简称
+bond_code: []const u8 = "", // 债券代码（包含交易所后缀）
+abbr: []const u8 = "", // 债券简称
 cp_rate_1st: f64, // 票面利率
 inst_freq: i32, // 年付息次数
 carry_date: Date, // 起息日
@@ -31,6 +33,7 @@ day_count: BondDayCount = .act_365, // 计息基准
 
 pub usingnamespace io;
 pub usingnamespace attr;
+pub usingnamespace calc;
 
 test "bond create" {
     // 创建一个债券实例

@@ -14,10 +14,29 @@ pub inline fn fromInner(inner: _Date) Date {
     };
 }
 
+pub inline fn toInner(self: Date) _Date {
+    return _Date{
+        .year = self.year,
+        .month = self.month,
+        .day = self.day,
+    };
+}
+
 pub fn create(year: u32, month: u32, day: u32) !Date {
     const date = try _Date.create(year, month, day);
     return @This().fromInner(date);
 }
+
+pub fn fromOrdinal(ordinal: u32) !Date {
+    const date = _Date.fromOrdinal(ordinal);
+    return @This().fromInner(date);
+}
+
+pub fn toOrdinal(self: Date) u32 {
+    return self.toInner().toOrdinal();
+}
+
+// === Parse ===
 
 pub fn parseIso(str: []const u8) !Date {
     const date = try _Date.parseIso(str);
@@ -41,6 +60,68 @@ test "date jsonParse" {
     defer res.deinit();
     try std.testing.expectEqual(res.value.date.year, 2024);
 }
+
+pub fn formatIso(self: Date, buf: []u8) ![]u8 {
+    return std.fmt.bufPrint(buf, "{:0>4}-{:0>2}-{:0>2}", .{ self.year, self.month, self.day });
+}
+
+test "date formatIso" {
+    var buf: [11]u8 = undefined;
+    const date = try Date.create(2024, 9, 25);
+    try std.testing.expectEqualStrings("2024-09-25", try date.formatIso(buf[0..]));
+}
+
+// === Shift ===
+
+/// Different from datetime.Date.shiftYears, this function will not consider leap year
+/// if you want to shift years and consider leap year, you should use datetime.Date.shiftYears
+pub fn shiftYears(self: Date, years: i16) !Date {
+    var year = self.year;
+    if (years < 0) {
+        year -= @intCast(-years);
+    } else {
+        year += @intCast(years);
+    }
+    return Date.create(year, self.month, self.day);
+}
+
+pub fn shiftMonths(date: Date, months: i32) !Date {
+    var new_year = date.year;
+    var new_month: i32 = @intCast(date.month);
+
+    new_month += months;
+
+    while (new_month > 12) {
+        new_month -= 12;
+        new_year += 1;
+    }
+
+    while (new_month <= 0) {
+        new_month += 12;
+        new_year -= 1;
+    }
+
+    return Date.create(new_year, @intCast(new_month), date.day);
+}
+
+test "date shiftMonths" {
+    const date = try Date.create(2024, 9, 25);
+    const new_date = try date.shiftMonths(1);
+    try std.testing.expectEqual(new_date, try Date.create(2024, 10, 25));
+    const new_date2 = try date.shiftMonths(-1);
+    try std.testing.expectEqual(new_date2, try Date.create(2024, 8, 25));
+    const new_date3 = try date.shiftMonths(13);
+    try std.testing.expectEqual(new_date3, try Date.create(2025, 10, 25));
+    const new_date4 = try date.shiftMonths(-33);
+    try std.testing.expectEqual(new_date4, try Date.create(2021, 12, 25));
+}
+
+pub fn shiftDays(self: Date, days: i32) Date {
+    const date = self.toInner().shiftDays(days);
+    return @This().fromInner(date);
+}
+
+// === Comparison ===
 
 pub fn cmp(self: Date, other: Date) std.math.Order {
     if (self.year > other.year) return .gt;
@@ -72,16 +153,6 @@ pub fn gt(self: Date, other: Date) bool {
 pub fn gte(self: Date, other: Date) bool {
     const r = self.cmp(other);
     return r == .eq or r == .gt;
-}
-
-pub fn formatIso(self: Date, buf: []u8) ![]u8 {
-    return std.fmt.bufPrint(buf, "{:0>4}-{:0>2}-{:0>2}", .{ self.year, self.month, self.day });
-}
-
-test "date formatIso" {
-    var buf: [11]u8 = undefined;
-    const date = try Date.create(2024, 9, 25);
-    try std.testing.expectEqualStrings("2024-09-25", try date.formatIso(buf[0..]));
 }
 
 comptime {

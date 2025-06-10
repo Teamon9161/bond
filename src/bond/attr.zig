@@ -60,7 +60,7 @@ test "bond coupon" {
 }
 
 /// 获取付息间隔（月数）
-pub fn cpOffset(self: *const Bond) !u32 {
+pub fn cpOffset(self: *const Bond) !i32 {
     return switch (self.inst_freq) {
         0 => 0,
         1 => 12,
