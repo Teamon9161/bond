@@ -16,6 +16,8 @@ const calc = @import("methods/calc.zig");
 /// io methods
 const io = @import("methods/io.zig");
 
+const wind_download = @import("download/wind.zig");
+
 const Bond = @This();
 bond_code: []const u8 = "", // 债券代码（包含交易所后缀）
 abbr: []const u8 = "", // 债券简称
@@ -34,6 +36,8 @@ day_count: BondDayCount = .act_365, // 计息基准
 pub usingnamespace io;
 pub usingnamespace attr;
 pub usingnamespace calc;
+
+pub const download = wind_download;
 
 test "bond create" {
     // 创建一个债券实例

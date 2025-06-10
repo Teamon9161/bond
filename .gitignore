@@ -2,3 +2,5 @@
 zig-out/
 _auto_bond.zig
 test/save/
+AdapterWindAPI.h
+WindPy.py

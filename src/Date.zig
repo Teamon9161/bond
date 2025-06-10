@@ -29,13 +29,18 @@ pub fn create(year: u32, month: u32, day: u32) !Date {
     return @This().fromInner(date);
 }
 
-pub fn fromOrdinal(ordinal: u32) !Date {
+pub fn fromOrdinal(ordinal: u32) Date {
     const date = _Date.fromOrdinal(ordinal);
     return @This().fromInner(date);
 }
 
 pub fn toOrdinal(self: Date) u32 {
     return self.toInner().toOrdinal();
+}
+
+pub fn now() Date {
+    const date = _Date.now();
+    return @This().fromInner(date);
 }
 
 // === Parse ===
