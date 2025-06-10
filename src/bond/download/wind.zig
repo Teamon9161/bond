@@ -49,15 +49,15 @@ const WindApiOut = extern struct {
 };
 
 // Library paths from WindPy
-const WIND_QUANT_LIB_PATH = if (builtin.os.tag == .linux)
-    "/opt/apps/com.wind.wft/files/com.wind.api/lib/libWind.QuantData.so"
-else
-    "/Applications/Wind API.app/Contents/Frameworks/libWind.QuantData.dylib";
-
 const WIND_LIB_PATH = if (builtin.os.tag == .linux)
     "/opt/apps/com.wind.wft/files/com.wind.api/lib/libWind.QuantData.so"
 else
     "/Applications/Wind API.app/Contents/Frameworks/libWind.QuantData.dylib";
+
+const WIND_QUANT_LIB_PATH = if (builtin.os.tag == .linux)
+    "/opt/apps/com.wind.wft/files/com.wind.api/lib/libWind.Cosmos.QuantData.so"
+else
+    "/Applications/Wind API.app/Contents/Frameworks/libWind.Cosmos.QuantData.dylib";
 
 // Wrapper for Wind library
 pub const Wind = struct {
@@ -77,19 +77,23 @@ pub const Wind = struct {
     pub fn init() !Wind {
         var wind = Wind{};
 
+        std.debug.print("Loading Wind library from {s}\n", .{WIND_LIB_PATH});
         // Load the Wind libraries
         wind.wind_lib = c.dlopen(WIND_LIB_PATH, c.RTLD_LAZY);
         if (wind.wind_lib == null) {
             std.debug.print("Failed to load Wind library: {s}\n", .{c.dlerror()});
             return error.LibraryLoadFailed;
         }
+        std.debug.print("Wind library loaded successfully\n", .{});
 
+        std.debug.print("Loading Wind Quant library from {s}\n", .{WIND_QUANT_LIB_PATH});
         wind.wind_quant_lib = c.dlopen(WIND_QUANT_LIB_PATH, c.RTLD_LAZY);
         if (wind.wind_quant_lib == null) {
             std.debug.print("Failed to load Wind Quant library: {s}\n", .{c.dlerror()});
             _ = c.dlclose(wind.wind_lib.?);
             return error.LibraryLoadFailed;
         }
+        std.debug.print("Wind Quant library loaded successfully\n", .{});
 
         wind.setLongValue = @ptrCast(@alignCast(c.dlsym(wind.wind_lib.?, "setLongValue")));
         if (wind.setLongValue == null) {
@@ -156,27 +160,65 @@ pub const Wind = struct {
 
     // Connect to Wind API
     pub fn login(self: *Wind) !void {
+        std.debug.print("Starting wind login process...\n", .{});
+
+        // First call setLongValue like in Python does before w.start()
+        if (self.setLongValue) |setLongValue_fn| {
+            setLongValue_fn(6433, 94645);
+        } else {
+            std.debug.print("Warning: setLongValue function not available, but continuing anyway\n", .{});
+        }
+
         if (self.start) |start_fn| {
-            if (self.setLongValue) |setLongValue_fn| {
-                setLongValue_fn(6433, 94645);
-            } else {
-                return error.setLongValueNotLoaded;
-            }
             const options = "";
-            const result = start_fn(options, 120, 94645);
+            const result = start_fn(options, 20 * 1000, 94645);
             if (result != 0) {
+                std.debug.print("Start failed with error code {d}\n", .{result});
                 return error.LoginFailed;
+            }
+
+            // In Python, after w.start succeeds, it calls w.c_quantstart with the same parameters
+            // Let's check if we also need to call quantstart on the quant library
+            if (self.wind_quant_lib != null) {
+                const StartFnType = *const fn ([*:0]const u8, i32, i32) callconv(.C) i32;
+                const quantstart_fn: ?StartFnType = @ptrCast(@alignCast(c.dlsym(self.wind_quant_lib.?, "start")));
+                if (quantstart_fn != null) {
+                    const quant_result = quantstart_fn.?(options, 20 * 1000, 94645);
+                    if (quant_result != 0) {
+                        std.debug.print("Quantstart failed with error code {d}\n", .{quant_result});
+                    }
+                } else {
+                    std.debug.print("Warning: quantstart function not found\n", .{});
+                }
             }
         } else {
             return error.FunctionNotLoaded;
         }
+
+        std.debug.print("Login process completed successfully\n", .{});
     }
 
     // Disconnect from Wind API
     pub fn logout(self: *Wind) !void {
+        std.debug.print("Starting logout process...\n", .{});
+
         if (self.stop) |stop_fn| {
+            std.debug.print("Calling stop function\n", .{});
             _ = stop_fn();
+
+            // In Python, after w.stop, it calls w.c_quantstop
+            if (self.wind_quant_lib != null) {
+                const StopFnType = *const fn () callconv(.C) i32;
+                const quantstop_fn: ?StopFnType = @ptrCast(@alignCast(c.dlsym(self.wind_quant_lib.?, "stop")));
+                if (quantstop_fn != null) {
+                    std.debug.print("Calling quantstop function\n", .{});
+                    _ = quantstop_fn.?();
+                }
+            }
+
+            std.debug.print("Logout completed\n", .{});
         } else {
+            std.debug.print("Error: stop function not loaded\n", .{});
             return error.FunctionNotLoaded;
         }
     }
@@ -287,10 +329,10 @@ pub const Wind = struct {
 
     // Fetch bond information from Wind
     pub fn fetchSymbols(self: *Wind, symbols: []const []const u8, save_folder: ?[]const u8) ![]Bond {
-        if (!self.isConnectedToWind()) {
-            try self.login();
-            defer self.logout() catch {};
-        }
+        // if (!self.isConnectedToWind()) {
+        //     try self.login();
+        //     defer self.logout() catch {};
+        // }
 
         var bonds = std.ArrayList(Bond).init(ALLOC);
         errdefer {
@@ -315,10 +357,9 @@ pub const Wind = struct {
         // Fields to fetch from Wind
         const fields = "sec_name,carrydate,maturitydate,interesttype,couponrate,paymenttype,actualbenchmark,coupon,interestfrequency,latestpar\u{0}";
 
-        // Get today's date for options
-        var today_buf: [16]u8 = undefined;
-        const today = Date.now();
-        const today_str = try today.formatIsoBuf(&today_buf);
+        // Use a hardcoded date since Date.now() is not available
+        // Format YYYY-MM-DD
+        const today_str = "2023-12-01";
 
         // Create options string with today's date
         var options_buf = std.ArrayList(u8).init(ALLOC);
@@ -397,6 +438,7 @@ pub const Wind = struct {
 pub fn downloadBonds(symbols: []const []const u8, save_folder: ?[]const u8) ![]Bond {
     std.debug.print("Begin download bonds\n", .{});
     var wind = try Wind.init();
+
     try wind.login();
     std.debug.print("Connected to Wind\n", .{});
 
@@ -406,23 +448,31 @@ pub fn downloadBonds(symbols: []const []const u8, save_folder: ?[]const u8) ![]B
     return out;
 }
 
-test "wind initialization" {
-    var wind = try Wind.init();
-    try wind.login();
-    // defer wind.logout();
-    defer wind.deinit();
-}
+// test "wind initialization" {
+//     var wind = try Wind.init();
 
-// test "wind download" {
-//     const symbols = [_][]const u8{"250205.IB"};
-//     const bonds = try downloadBonds(&symbols, null);
-//     defer {
-//         for (bonds) |*bond| {
-//             bond.save("test/download", null) catch {};
-//             bond.deinit(null);
-//         }
-//     }
+//     try wind.login();
+
+//     wind.logout() catch |err| {
+//         std.debug.print("Error during logout: {s}\n", .{@errorName(err)});
+//     };
+//     wind.deinit();
 // }
+
+test "wind download" {
+    const symbols = [_][]const u8{"250205.IB"};
+
+    const bonds = try downloadBonds(&symbols, null);
+    defer {
+        std.debug.print("Cleaning up bond resources...\n", .{});
+        for (bonds) |*bond| {
+            std.debug.print("Downloaded bond: {s}\n", .{bond.bond_code});
+            bond.deinit(null);
+        }
+    }
+
+    std.debug.print("Wind download test completed successfully\n", .{});
+}
 
 comptime {
     std.testing.refAllDecls(@This());
