@@ -357,9 +357,9 @@ pub const Wind = struct {
         // Fields to fetch from Wind
         const fields = "sec_name,carrydate,maturitydate,interesttype,couponrate,paymenttype,actualbenchmark,coupon,interestfrequency,latestpar\u{0}";
 
-        // Use a hardcoded date since Date.now() is not available
-        // Format YYYY-MM-DD
-        const today_str = "2023-12-01";
+        const today = Date.now();
+        var buf: [16]u8 = undefined;
+        const today_str = try today.formatIsoBuf(buf[0..]);
 
         // Create options string with today's date
         var options_buf = std.ArrayList(u8).init(ALLOC);
