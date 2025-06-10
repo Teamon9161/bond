@@ -1,8 +1,9 @@
-const Bond = @import("Bond.zig");
 const std = @import("std");
-const io = @This();
 
-const ALLOC = @import("../root.zig").ALLOC;
+const ALLOC = @import("../../root.zig").ALLOC;
+const Bond = @import("../Bond.zig");
+
+const io = @This();
 
 /// 根据合约代码创建债券, 需要从文件读取合约信息
 pub fn init(code_str: []const u8, path: ?[]const u8, allocator: ?std.mem.Allocator) !Bond {
@@ -19,7 +20,7 @@ pub fn init(code_str: []const u8, path: ?[]const u8, allocator: ?std.mem.Allocat
 }
 
 test "read bond from file" {
-    const path = @import("testing.zig").TEST_BOND_PATH;
+    const path = @import("../testing.zig").TEST_BOND_PATH;
     var bond = try Bond.init("2400006.IB", path, null);
     defer bond.deinit(null);
     try std.testing.expectEqualStrings("2400006.IB", bond.bond_code);
@@ -43,7 +44,7 @@ pub fn fromJson(json_str: []const u8, allocator: ?std.mem.Allocator) !Bond {
 }
 
 test "bond from_json" {
-    var bond = @import("testing.zig").createBond();
+    var bond = @import("../testing.zig").createBond();
     defer bond.deinit(null);
 
     try std.testing.expectEqualStrings("2400006.IB", bond.bond_code);
@@ -93,8 +94,6 @@ pub fn getSavePath(code_str: []const u8, path: ?[]const u8, allocator: ?std.mem.
     const alloc = allocator orelse ALLOC;
     var buf: [16]u8 = undefined;
     const file_name = try std.fmt.bufPrint(buf[0..], comptime "{s}.json", .{code_str});
-    // const file_name = try std.mem.concat(alloc, u8, &.{ code_str, ".json" });
-    // defer alloc.free(file_name);
     if (path) |p| {
         return try std.fs.path.join(alloc, &.{ p, file_name });
     } else {
@@ -103,7 +102,7 @@ pub fn getSavePath(code_str: []const u8, path: ?[]const u8, allocator: ?std.mem.
 }
 
 test "bond getSavePath" {
-    const TEST_BOND_PATH = @import("testing.zig").TEST_BOND_PATH;
+    const TEST_BOND_PATH = @import("../testing.zig").TEST_BOND_PATH;
     const path = try Bond.getSavePath("2400006.IB", null, null);
     defer ALLOC.free(path);
     try std.testing.expectEqualStrings("bonds_info/2400006.IB.json", path);
@@ -120,11 +119,11 @@ pub fn save(self: *const Bond, path: []const u8, allocator: ?std.mem.Allocator) 
 
     // 检查路径是目录还是文件
     const path_stat = std.fs.cwd().statFile(path) catch |err| switch (err) {
-        error.FileNotFound => null, // 文件不存在，我们将创建它
+        error.FileNotFound => null,
         else => return err,
     };
 
-    var free_path_flag = false;
+    var free_path_flag = true;
 
     // 确定最终的文件路径
     const final_path = if (path_stat) |stat| blk: {
@@ -135,7 +134,7 @@ pub fn save(self: *const Bond, path: []const u8, allocator: ?std.mem.Allocator) 
             break :blk try std.fs.path.join(alloc, &.{ path, file_name });
         } else {
             // 如果是文件，直接使用该路径
-            free_path_flag = true;
+            free_path_flag = false;
             break :blk path;
         }
     } else blk: {
@@ -147,7 +146,7 @@ pub fn save(self: *const Bond, path: []const u8, allocator: ?std.mem.Allocator) 
             break :blk try std.fs.path.join(alloc, &.{ path, file_name });
         } else {
             // 看起来像文件路径
-            free_path_flag = true;
+            free_path_flag = false;
             break :blk path;
         }
     };
@@ -170,6 +169,12 @@ pub fn save(self: *const Bond, path: []const u8, allocator: ?std.mem.Allocator) 
     defer alloc.free(json_string);
 
     try file.writeAll(json_string);
+}
+
+test "bond save" {
+    var bond = @import("../testing.zig").createBond();
+    defer bond.deinit(null);
+    try bond.save("test/save", null);
 }
 
 comptime {

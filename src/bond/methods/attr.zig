@@ -1,6 +1,8 @@
-const Bond = @import("Bond.zig");
-const Date = @import("../Date.zig");
 const std = @import("std");
+
+const Date = @import("../../Date.zig");
+const Bond = @import("../Bond.zig");
+
 const attr = @This();
 
 /// 判断债券是否为零息债券
@@ -9,7 +11,7 @@ pub fn isZeroCoupon(self: *const Bond) bool {
 }
 
 test "bond isZeroCoupon" {
-    var bond = @import("testing.zig").createBond();
+    var bond = @import("../testing.zig").createBond();
     defer bond.deinit(null);
     try std.testing.expectEqual(false, bond.isZeroCoupon());
 }
@@ -28,7 +30,7 @@ pub fn issueYear(self: *const Bond) i32 {
 }
 
 test "bond issueYear" {
-    var bond = @import("testing.zig").createBond();
+    var bond = @import("../testing.zig").createBond();
     defer bond.deinit(null);
     try std.testing.expectEqual(@as(i32, 30), bond.issueYear());
 }
@@ -42,7 +44,7 @@ pub fn remainYear(self: *const Bond, date: Date) f64 {
 }
 
 test "bond remainYear" {
-    var bond = @import("testing.zig").createBond();
+    var bond = @import("../testing.zig").createBond();
     defer bond.deinit(null);
     try std.testing.expectEqual(@as(f64, 30.0), bond.remainYear(try Date.create(2024, 9, 25)));
     try std.testing.expectEqual(@as(f64, 1.5 + 5.0 / 365.0), bond.remainYear(try Date.create(2053, 3, 20)));
@@ -54,7 +56,7 @@ pub fn coupon(self: *const Bond) f64 {
 }
 
 test "bond coupon" {
-    var bond = @import("testing.zig").createBond();
+    var bond = @import("../testing.zig").createBond();
     defer bond.deinit(null);
     try std.testing.expectEqual(@as(f64, 0.0219 * 100.0 / 2.0), bond.coupon());
 }
@@ -70,7 +72,7 @@ pub fn cpOffset(self: *const Bond) !i32 {
 }
 
 test "bond cpOffset" {
-    var bond = @import("testing.zig").createBond();
+    var bond = @import("../testing.zig").createBond();
     defer bond.deinit(null);
     try std.testing.expectEqual(6, try bond.cpOffset());
 }
@@ -91,7 +93,7 @@ pub fn ensureDateValid(self: *const Bond, date: Date) !Date {
 }
 
 test "bond ensureDateValid" {
-    var bond = @import("testing.zig").createBond();
+    var bond = @import("../testing.zig").createBond();
     defer bond.deinit(null);
     var date = try Date.create(2024, 9, 23);
     try std.testing.expectEqual(try Date.create(2024, 9, 25), try bond.ensureDateValid(date));

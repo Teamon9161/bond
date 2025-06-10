@@ -1,4 +1,5 @@
 const std = @import("std");
+
 fn F64(x: anytype) f64 {
     return @as(f64, @floatFromInt(x));
 }

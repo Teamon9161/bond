@@ -1,6 +1,6 @@
-pub const TEST_BOND_PATH = "test/data";
 const Bond = @import("Bond.zig");
 
+pub const TEST_BOND_PATH = "test/data";
 const BOND_JSON_STR =
     \\{
     \\    "bond_code": "2400006.IB",

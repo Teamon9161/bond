@@ -1,22 +1,22 @@
 const std = @import("std");
 const json = std.json;
 
-pub const enums = @import("enums.zig");
 const Date = @import("../Date.zig");
-/// attribute methods
-const attr = @import("attr.zig");
-/// io methods
-const io = @import("io.zig");
-/// calculation methods
-const calc = @import("calc.zig");
+const ALLOC = @import("../root.zig").ALLOC;
 
-const Bond = @This();
+pub const enums = @import("enums.zig");
 const Market = enums.Market;
 const CouponType = enums.CouponType;
 const InterestType = enums.InterestType;
 const BondDayCount = enums.BondDayCount;
-const ALLOC = @import("../root.zig").ALLOC;
+/// attribute methods
+const attr = @import("methods/attr.zig");
+/// calculation methods
+const calc = @import("methods/calc.zig");
+/// io methods
+const io = @import("methods/io.zig");
 
+const Bond = @This();
 bond_code: []const u8 = "", // 债券代码（包含交易所后缀）
 abbr: []const u8 = "", // 债券简称
 cp_rate_1st: f64, // 票面利率

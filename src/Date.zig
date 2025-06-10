@@ -1,5 +1,7 @@
-const _Date = @import("datetime").datetime.Date;
 const std = @import("std");
+
+const _Date = @import("datetime").datetime.Date;
+
 const Date = @This();
 
 year: u16,
@@ -43,11 +45,18 @@ pub fn parseIso(str: []const u8) !Date {
     return @This().fromInner(date);
 }
 
+// === Json Support ===
 pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) !Date {
     const str = try std.json.innerParse([]const u8, allocator, source, options);
     return Date.parseIso(str) catch {
         return error.SyntaxError;
     };
+}
+
+pub fn jsonStringify(self: Date, jws: anytype) !void {
+    const str = try self.formatIso(null);
+    defer @import("root.zig").ALLOC.free(str);
+    return try jws.print("\"{s}\"", .{str});
 }
 
 test "date jsonParse" {
@@ -61,14 +70,26 @@ test "date jsonParse" {
     try std.testing.expectEqual(res.value.date.year, 2024);
 }
 
-pub fn formatIso(self: Date, buf: []u8) ![]u8 {
-    return std.fmt.bufPrint(buf, "{:0>4}-{:0>2}-{:0>2}", .{ self.year, self.month, self.day });
+// Return date in ISO format YYYY-MM-DD
+const ISO_DATE_FMT = "{:0>4}-{:0>2}-{:0>2}";
+
+pub fn formatIso(self: Date, allocator: ?std.mem.Allocator) ![]u8 {
+    const alloc = allocator orelse @import("root.zig").ALLOC;
+    return std.fmt.allocPrint(alloc, ISO_DATE_FMT, .{ self.year, self.month, self.day });
+}
+
+pub fn formatIsoBuf(self: Date, buf: []u8) ![]u8 {
+    return std.fmt.bufPrint(buf, ISO_DATE_FMT, .{ self.year, self.month, self.day });
+}
+
+pub fn writeIso(self: Date, writer: anytype) !void {
+    try std.fmt.format(writer, ISO_DATE_FMT, .{ self.year, self.month, self.day });
 }
 
 test "date formatIso" {
     var buf: [11]u8 = undefined;
     const date = try Date.create(2024, 9, 25);
-    try std.testing.expectEqualStrings("2024-09-25", try date.formatIso(buf[0..]));
+    try std.testing.expectEqualStrings("2024-09-25", try date.formatIsoBuf(buf[0..]));
 }
 
 // === Shift ===

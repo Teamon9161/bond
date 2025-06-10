@@ -10,6 +10,7 @@ fn makeJsonParse(comptime T: type) fn (std.mem.Allocator, anytype, std.json.Pars
         }
     }.impl;
 }
+
 /// 市场类型
 pub const Market = enum(u8) {
     /// 银行间
@@ -36,6 +37,16 @@ pub const Market = enum(u8) {
             return error.InvalidMarket;
         }
     }
+
+    pub fn jsonStringify(self: @This(), jws: anytype) !void {
+        switch (self) {
+            .ib => try jws.print("\"IB\"", .{}),
+            .sse => try jws.print("\"SSE\"", .{}),
+            .sh => try jws.print("\"SH\"", .{}),
+            .sze => try jws.print("\"SZE\"", .{}),
+            .sz => try jws.print("\"SZ\"", .{}),
+        }
+    }
 };
 
 test "Market.jsonParse" {
@@ -59,7 +70,6 @@ pub const CouponType = enum(u8) {
     one_time = 2,
 
     pub const jsonParse = makeJsonParse(@This());
-
     pub fn parse(str: []const u8) !@This() {
         if (std.mem.eql(u8, str, "Coupon_Bear")) {
             return .coupon_bear;
@@ -69,6 +79,14 @@ pub const CouponType = enum(u8) {
             return .one_time;
         } else {
             return error.InvalidCouponType;
+        }
+    }
+
+    pub fn jsonStringify(self: @This(), jws: anytype) !void {
+        switch (self) {
+            .coupon_bear => try jws.print("\"Coupon_Bear\"", .{}),
+            .zero_coupon => try jws.print("\"Zero_Coupon\"", .{}),
+            .one_time => try jws.print("\"One_Time\"", .{}),
         }
     }
 };
@@ -85,7 +103,6 @@ pub const InterestType = enum(u8) {
     zero = 3,
 
     pub const jsonParse = makeJsonParse(@This());
-
     pub fn parse(str: []const u8) !@This() {
         if (std.mem.eql(u8, str, "Fixed")) {
             return .fixed;
@@ -97,6 +114,15 @@ pub const InterestType = enum(u8) {
             return .zero;
         } else {
             return error.InvalidInterestType;
+        }
+    }
+
+    pub fn jsonStringify(self: @This(), jws: anytype) !void {
+        switch (self) {
+            .fixed => try jws.print("\"Fixed\"", .{}),
+            .floating => try jws.print("\"Floating\"", .{}),
+            .progressive => try jws.print("\"Progressive\"", .{}),
+            .zero => try jws.print("\"Zero\"", .{}),
         }
     }
 };
@@ -121,6 +147,7 @@ pub const BondDayCount = enum(u8) {
     bus_ib = 7,
     /// 上交所工作日
     bus_sse = 8,
+    pub const jsonParse = makeJsonParse(@This());
 
     pub fn parse(str: []const u8) !@This() {
         if (std.mem.eql(u8, str, "ACT/ACT")) {
@@ -146,5 +173,17 @@ pub const BondDayCount = enum(u8) {
         }
     }
 
-    pub const jsonParse = makeJsonParse(@This());
+    pub fn jsonStringify(self: @This(), jws: anytype) !void {
+        switch (self) {
+            .act_act => try jws.print("\"ACT/ACT\"", .{}),
+            .act_365 => try jws.print("\"A/365\"", .{}),
+            .act_360 => try jws.print("\"A/360\"", .{}),
+            .act_365f => try jws.print("\"A/365F\"", .{}),
+            .thirty_365 => try jws.print("\"T/365\"", .{}),
+            .thirty_360 => try jws.print("\"T/360\"", .{}),
+            .bus => try jws.print("\"Bus\"", .{}),
+            .bus_ib => try jws.print("\"BUSIB\"", .{}),
+            .bus_sse => try jws.print("\"BUSSSE\"", .{}),
+        }
+    }
 };

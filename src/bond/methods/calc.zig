@@ -1,11 +1,11 @@
-const Bond = @import("Bond.zig");
-const Date = @import("../Date.zig");
 const std = @import("std");
+
+const Date = @import("../../Date.zig");
+const Actual = @import("../../day_counter.zig").Actual;
+const ALLOC = @import("../../root.zig").ALLOC;
+const Bond = @import("../Bond.zig");
+
 const calc = @This();
-const Actual = @import("../day_counter.zig").Actual;
-
-const ALLOC = @import("../root.zig").ALLOC;
-
 fn F64(x: anytype) f64 {
     return @as(f64, @floatFromInt(x));
 }
@@ -36,8 +36,8 @@ pub fn nearestCpDate(self: *const Bond, date: Date) !struct { Date, Date } {
 }
 
 test "bond nearestCpDate" {
-    var bond = @import("testing.zig").createBond();
-    const date = @import("../root.zig").date;
+    var bond = @import("../testing.zig").createBond();
+    const date = @import("../../root.zig").date;
     defer bond.deinit(null);
 
     // 测试年付息债券
@@ -78,8 +78,8 @@ pub fn remainCpNum(self: *const Bond, date: Date, next_cp_date: ?Date) !i32 {
 }
 
 test "bond remainCpNum" {
-    var bond = @import("testing.zig").createBond();
-    const date = @import("../root.zig").date;
+    var bond = @import("../testing.zig").createBond();
+    const date = @import("../../root.zig").date;
 
     defer bond.deinit(null);
 
@@ -170,8 +170,8 @@ pub fn getLastCpYearDays(self: *const Bond) !i64 {
 }
 
 test "bond getLastCpYearDays" {
-    var bond = @import("testing.zig").createBond();
-    const date = @import("../root.zig").date;
+    var bond = @import("../testing.zig").createBond();
+    const date = @import("../../root.zig").date;
 
     defer bond.deinit(null);
 
@@ -261,7 +261,7 @@ pub fn calcYtmWithPrice(self: *const Bond, dirty_price: f64, date: Date, cp_date
             const remain_days = F64(try Actual.countDays(date, cp_dates_tuple[1]));
 
             const n = remain_cp_num orelse try self.remainCpNum(date, null);
-            const utils = @import("utils.zig");
+            const utils = @import("../utils.zig");
             if (n > 1) {
                 const ty = F64(try Actual.countDays(cp_dates_tuple[0], cp_dates_tuple[1]));
                 const context = .{ .n = n, .inst_freq = inst_freq, .remain_days = remain_days, .ty = ty, .coupon_value = coupon_value, .par_value = self.par_value, .dirty_price = dirty_price };
@@ -340,7 +340,7 @@ pub fn calcDuration(self: *const Bond, ytm: f64, date: Date, cp_dates: ?struct {
 }
 
 test "bond calc" {
-    const date = @import("../root.zig").date;
+    const date = @import("../../root.zig").date;
     const expect = std.testing.expectApproxEqAbs;
     var bond = Bond{
         .cp_rate_1st = 0.0228,
