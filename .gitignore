@@ -5,3 +5,4 @@ test/save/
 test/download/
 AdapterWindAPI.h
 WindPy.py
+bonds_info/

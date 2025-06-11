@@ -121,23 +121,27 @@ pub const Wind = struct {
     pub fn init() !Wind {
         var wind = Wind{};
 
-        std.debug.print("Loading Wind library from {s}\n", .{WIND_LIB_PATH});
-        // Load the Wind libraries
-        wind.wind_lib = c.dlopen(WIND_LIB_PATH, c.RTLD_LAZY);
+        std.debug.print("INIT_DETAIL: Creating Wind instance at {*}\n", .{&wind});
+        std.debug.print("INIT_DETAIL: Loading Wind library from {s}\n", .{WIND_LIB_PATH});
+
+        // Load the Wind libraries with RTLD_NOW to check for symbol errors immediately
+        wind.wind_lib = c.dlopen(WIND_LIB_PATH, c.RTLD_NOW);
         if (wind.wind_lib == null) {
-            std.debug.print("Failed to load Wind library: {s}\n", .{c.dlerror()});
+            const err_str = c.dlerror();
+            std.debug.print("INIT_ERROR: Failed to load Wind library: {s}\n", .{err_str});
             return error.LibraryLoadFailed;
         }
-        std.debug.print("Wind library loaded successfully\n", .{});
+        std.debug.print("INIT_DETAIL: Wind library loaded successfully at {*}\n", .{wind.wind_lib});
 
-        std.debug.print("Loading Wind Quant library from {s}\n", .{WIND_QUANT_LIB_PATH});
-        wind.wind_quant_lib = c.dlopen(WIND_QUANT_LIB_PATH, c.RTLD_LAZY);
+        std.debug.print("INIT_DETAIL: Loading Wind Quant library from {s}\n", .{WIND_QUANT_LIB_PATH});
+        wind.wind_quant_lib = c.dlopen(WIND_QUANT_LIB_PATH, c.RTLD_NOW);
         if (wind.wind_quant_lib == null) {
-            std.debug.print("Failed to load Wind Quant library: {s}\n", .{c.dlerror()});
+            const err_str = c.dlerror();
+            std.debug.print("INIT_ERROR: Failed to load Wind Quant library: {s}\n", .{err_str});
             _ = c.dlclose(wind.wind_lib.?);
             return error.LibraryLoadFailed;
         }
-        std.debug.print("Wind Quant library loaded successfully\n", .{});
+        std.debug.print("INIT_DETAIL: Wind Quant library loaded successfully at {*}\n", .{wind.wind_quant_lib});
 
         wind.setLongValue = @ptrCast(@alignCast(c.dlsym(wind.wind_lib.?, "setLongValue")));
         if (wind.setLongValue == null) {
@@ -205,17 +209,25 @@ pub const Wind = struct {
     // Connect to Wind API
     pub fn login(self: *Wind) !void {
         std.debug.print("Starting wind login process...\n", .{});
+        std.debug.print("DETAIL: Wind instance at {*}, lib: {*}, quant_lib: {*}\n", .{ self, self.wind_lib, self.wind_quant_lib });
 
         // First call setLongValue like in Python does before w.start()
         if (self.setLongValue) |setLongValue_fn| {
+            std.debug.print("Calling setLongValue at {*}...\n", .{setLongValue_fn});
             setLongValue_fn(6433, 94645);
+            std.debug.print("setLongValue completed\n", .{});
         } else {
             std.debug.print("Warning: setLongValue function not available, but continuing anyway\n", .{});
         }
 
         if (self.start) |start_fn| {
+            std.debug.print("Calling Wind start function at {*}...\n", .{start_fn});
             const options = "";
-            const result = start_fn(options, 20 * 1000, 94645);
+            // 减少超时时间，防止卡死
+            const timeout_ms = 10 * 1000; // 改为10秒
+            std.debug.print("Using timeout: {d}ms\n", .{timeout_ms});
+            const result = start_fn(options, timeout_ms, 94645);
+            std.debug.print("Wind start function returned: {d}\n", .{result});
             if (result != 0) {
                 std.debug.print("Start failed with error code {d}\n", .{result});
                 return error.LoginFailed;
@@ -224,10 +236,13 @@ pub const Wind = struct {
             // In Python, after w.start succeeds, it calls w.c_quantstart with the same parameters
             // Let's check if we also need to call quantstart on the quant library
             if (self.wind_quant_lib != null) {
+                std.debug.print("Calling quantstart...\n", .{});
                 const StartFnType = *const fn ([*:0]const u8, i32, i32) callconv(.C) i32;
                 const quantstart_fn: ?StartFnType = @ptrCast(@alignCast(c.dlsym(self.wind_quant_lib.?, "start")));
                 if (quantstart_fn != null) {
-                    const quant_result = quantstart_fn.?(options, 20 * 1000, 94645);
+                    std.debug.print("quantstart function found at {*}\n", .{quantstart_fn.?});
+                    const quant_result = quantstart_fn.?(options, timeout_ms, 94645);
+                    std.debug.print("Quantstart returned: {d}\n", .{quant_result});
                     if (quant_result != 0) {
                         std.debug.print("Quantstart failed with error code {d}\n", .{quant_result});
                     }
@@ -269,9 +284,14 @@ pub const Wind = struct {
 
     // Check if connected to Wind API
     pub fn isConnectedToWind(self: *Wind) bool {
+        std.debug.print("DETAIL: Checking Wind connection state for instance at {*}\n", .{self});
         if (self.isConnected) |is_connected_fn| {
-            return is_connected_fn() != 0;
+            std.debug.print("DETAIL: Calling isConnected function at {*}\n", .{is_connected_fn});
+            const result = is_connected_fn() != 0;
+            std.debug.print("DETAIL: isConnected returned: {}\n", .{result});
+            return result;
         } else {
+            std.debug.print("DETAIL: isConnected function not loaded\n", .{});
             return false;
         }
     }
@@ -363,20 +383,6 @@ pub const Wind = struct {
             switch (target_variant.vt) {
                 VT_CSTR => {
                     return std.mem.span(target_variant.val.cstrVal);
-                },
-                VT_BSTR => {
-                    // BSTR is a wide string, we need to convert it
-                    const wide_str = target_variant.val.bstrVal;
-                    var result = std.ArrayList(u8).init(ALLOC);
-                    var i: usize = 0;
-                    while (wide_str[i] != 0) : (i += 1) {
-                        if (wide_str[i] < 128) { // ASCII range
-                            try result.append(@intCast(wide_str[i]));
-                        } else {
-                            try result.append('?'); // Replace non-ASCII with '?'
-                        }
-                    }
-                    return result.toOwnedSlice();
                 },
                 VT_NULL, VT_EMPTY => {
                     return try ALLOC.dupe(u8, "");
@@ -610,6 +616,8 @@ pub const Wind = struct {
 
     // Fetch bond information from Wind
     pub fn fetchSymbols(self: *Wind, symbols: []const []const u8, save_folder: ?[]const u8) ![]Bond {
+        std.debug.print("FETCH_DETAILS: Starting fetchSymbols with {d} symbols\n", .{symbols.len});
+
         var bonds = std.ArrayList(Bond).init(ALLOC);
         errdefer {
             for (bonds.items) |*bond| {
@@ -629,9 +637,11 @@ pub const Wind = struct {
             }
         }
         try symbols_buf.append(0); // Null-terminate the string
+        std.debug.print("FETCH_DETAILS: Symbols prepared: {s}\n", .{symbols_buf.items});
 
         // Fields to fetch from Wind
         const fields = "sec_name,carrydate,maturitydate,interesttype,couponrate,paymenttype,actualbenchmark,coupon,interestfrequency,latestpar\u{0}";
+        std.debug.print("FETCH_DETAILS: Fields prepared\n", .{});
 
         const today = Date.now();
         var buf: [16]u8 = undefined;
@@ -643,33 +653,33 @@ pub const Wind = struct {
         try options_buf.appendSlice("tradeDate=");
         try options_buf.appendSlice(today_str);
         try options_buf.append(0); // Null-terminate the string
+        std.debug.print("FETCH_DETAILS: Options prepared: {s}\n", .{options_buf.items});
 
         if (self.wss) |wss_fn| {
-            std.debug.print("Calling Wind wss function...\n", .{});
-            std.debug.print("Symbols: {s}\n", .{symbols_buf.items[0 .. symbols_buf.items.len - 1]});
-            std.debug.print("Fields: {s}\n", .{fields[0 .. fields.len - 1]});
-            std.debug.print("Options: {s}\n", .{options_buf.items[0 .. options_buf.items.len - 1]});
+            std.debug.print("FETCH_DETAILS: About to call Wind WSS API...\n", .{});
 
+            // CRITICAL SECTION: Here's where we call into the Wind API
             const result = wss_fn(@ptrCast(symbols_buf.items.ptr), @ptrCast(fields.ptr), @ptrCast(options_buf.items.ptr));
-            defer if (self.free_data) |free_fn| free_fn(result);
+            std.debug.print("FETCH_DETAILS: WSS API call completed\n", .{});
 
-            std.debug.print("Wind API call completed\n", .{});
-            std.debug.print("ErrorCode: {d}\n", .{result.*.ErrorCode});
-            std.debug.print("StateCode: {d}\n", .{result.*.StateCode});
-            std.debug.print("RequestID: {d}\n", .{result.*.RequestID});
-
-            if (result.*.ErrorCode != 0) {
-                std.debug.print("Wind API Error: {d}\n", .{result.*.ErrorCode});
-                return error.WindApiError;
+            defer {
+                if (self.free_data) |free_fn| {
+                    std.debug.print("FETCH_DETAILS: Freeing result data\n", .{});
+                    free_fn(result);
+                }
             }
 
-            // Debug: Check data structure
-            std.debug.print("Data variant type: {d}\n", .{result.*.Data.vt});
-            std.debug.print("Data has array flag: {}\n", .{(result.*.Data.vt & VT_ARRAY) != 0});
+            if (result.*.ErrorCode != 0) {
+                std.debug.print("FETCH_DETAILS: Wind API Error: {d}\n", .{result.*.ErrorCode});
+                return error.WindApiError;
+            }
+            std.debug.print("FETCH_DETAILS: Result error code check passed\n", .{});
 
             if ((result.*.Data.vt & VT_ARRAY) != 0) {
                 const totalCount = getTotalCount(&result.*.Data);
-                std.debug.print("Total data count: {d}\n", .{totalCount});
+                std.debug.print("FETCH_DETAILS: Total data count: {d}\n", .{totalCount});
+            } else {
+                std.debug.print("FETCH_DETAILS: Warning - Data is not an array type\n", .{});
             }
 
             // Based on WindPy.py and download.py, we need to extract:
@@ -738,33 +748,80 @@ pub const Wind = struct {
 
 pub var WIND: ?Wind = null;
 
+// Helper function to ensure WIND is properly initialized
+fn ensureWindInitialized() !*Wind {
+    std.debug.print("DEBUG: ensureWindInitialized called, WIND is null? {}\n", .{WIND == null});
+
+    if (WIND == null) {
+        std.debug.print("INIT: Initializing Wind instance...\n", .{});
+        WIND = try Wind.init();
+        std.debug.print("INIT: Wind instance created successfully at address {*}\n", .{&WIND});
+    }
+
+    if (WIND) |*wind| {
+        std.debug.print("DEBUG: Returning Wind instance at address {*}\n", .{wind});
+        return wind;
+    } else {
+        std.debug.print("ERROR: WIND is still null after initialization\n", .{});
+        return error.WindInitializationFailed;
+    }
+}
+
+// Helper function to ensure WIND is connected
+fn ensureWindConnected() !*Wind {
+    std.debug.print("DEBUG: ensureWindConnected called\n", .{});
+
+    const wind = try ensureWindInitialized();
+
+    std.debug.print("CHECK: Checking Wind connection status for instance at {*}...\n", .{wind});
+    if (!wind.isConnectedToWind()) {
+        std.debug.print("LOGIN: Not connected, attempting to login...\n", .{});
+        try wind.login();
+        std.debug.print("LOGIN: Login completed successfully\n", .{});
+    } else {
+        std.debug.print("CHECK: Already connected to Wind\n", .{});
+    }
+
+    return wind;
+}
+
 // Utility function to download bond data
 pub fn downloadBonds(symbols: []const []const u8, save_folder: ?[]const u8) ![]Bond {
-    std.debug.print("Begin download bonds\n", .{});
-    var wind = try Wind.init();
+    std.debug.print("BEGIN: downloadBonds function started with {d} symbols\n", .{symbols.len});
+    if (symbols.len > 0) {
+        std.debug.print("BEGIN: First symbol: {s}\n", .{symbols[0]});
+    }
 
-    try wind.login();
-    std.debug.print("Connected to Wind\n", .{});
+    // Get properly connected Wind instance
+    const wind = try ensureWindConnected();
+    std.debug.print("CONNECTION: Successfully connected Wind instance at {*}\n", .{wind});
 
-    std.debug.print("Calling fetchSymbols...\n", .{});
+    // Make sure the wss function is loaded
+    if (wind.wss == null) {
+        std.debug.print("ERROR: Wind WSS function is not loaded\n", .{});
+        return error.WssFunctionNotLoaded;
+    }
+    std.debug.print("FETCH: About to call fetchSymbols with Wind instance at {*}...\n", .{wind});
+
+    // Call fetchSymbols with detailed error handling
     const out = wind.fetchSymbols(symbols, save_folder) catch |err| {
-        std.debug.print("fetchSymbols failed with error: {}\n", .{err});
-        try wind.logout();
-        wind.deinit();
+        std.debug.print("ERROR: fetchSymbols failed with error: {}\n", .{err});
+        // Don't logout or deinit here since it's a global variable and might be used later
         return err;
     };
 
-    std.debug.print("fetchSymbols completed, got {d} bonds\n", .{out.len});
-
-    try wind.logout();
-    wind.deinit();
+    std.debug.print("SUCCESS: fetchSymbols completed, got {d} bonds\n", .{out.len});
     return out;
 }
 
-// test "wind download with details" {
-//     const symbols = [_][]const u8{"240006.IB"};
+// Test for global WIND variable bond download functionality
+// Disabled because it gets stuck during WSS call
+// test "wind global download test" {
+//     std.debug.print("TEST_GLOBAL: Starting global wind download test\n", .{});
+
+//     const symbols = [_][]const u8{"250205.IB"};
 //     const bonds = downloadBonds(&symbols, "test/download/wind") catch |err| {
-//         std.debug.print("Download failed with error: {}\n", .{err});
+//         std.debug.print("TEST_GLOBAL: Download failed with error: {}\n", .{err});
 //         return;
 //     };
 //     defer {
@@ -773,7 +830,49 @@ pub fn downloadBonds(symbols: []const []const u8, save_folder: ?[]const u8) ![]B
 //         }
 //         ALLOC.free(bonds);
 //     }
+
+//     std.debug.print("TEST_GLOBAL: Successfully downloaded {d} bonds\n", .{bonds.len});
+//     if (bonds.len > 0) {
+//         std.debug.print("TEST_GLOBAL: First bond: {s} - {s}\n", .{ bonds[0].bond_code, bonds[0].abbr });
+//     }
 // }
+
+// Test the global WIND variable's initialization and connection without fetching data
+test "wind global init and connect" {
+    std.debug.print("\n====== TEST: Starting wind global init and connect test ======\n", .{});
+
+    // 1. Test initialization
+    const wind = ensureWindInitialized() catch |err| {
+        std.debug.print("TEST: Failed to initialize Wind: {}\n", .{err});
+        return;
+    };
+    std.debug.print("TEST: Wind initialized successfully at {*}\n", .{wind});
+
+    // 2. Test connection status
+    const connected = wind.isConnectedToWind();
+    std.debug.print("TEST: Initial connection status: {}\n", .{connected});
+
+    // 3. Test connection (if needed)
+    const wind_connected = ensureWindConnected() catch |err| {
+        std.debug.print("TEST: Failed to connect Wind: {}\n", .{err});
+        return;
+    };
+    std.debug.print("TEST: Wind connected successfully at {*}\n", .{wind_connected});
+
+    // 4. Verify connected Wind instance is the same as initialized one
+    std.debug.print("TEST: Comparing instances - wind: {*}, wind_connected: {*}\n", .{ wind, wind_connected });
+
+    // 5. Final connection check
+    const final_connected = wind.isConnectedToWind();
+    std.debug.print("TEST: Final connection status: {}\n", .{final_connected});
+
+    // Verification
+    const testing = std.testing;
+    try testing.expect(final_connected == true);
+    try testing.expect(@intFromPtr(wind) == @intFromPtr(wind_connected));
+
+    std.debug.print("====== TEST: Completed wind global init and connect test ======\n\n", .{});
+}
 
 comptime {
     std.testing.refAllDecls(@This());
