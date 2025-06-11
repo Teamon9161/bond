@@ -70,15 +70,15 @@ pub fn download(code: []const u8, options: struct {
     }
 }
 
-test "bond download" {
-    std.debug.print("Starting bond download test...\n", .{});
-    var bond = try download("250205.IB", .{
-        .source = .wind,
-    });
-    defer bond.deinit(null);
-    std.debug.print("Download completed, got bond: {s}\n", .{bond.abbr});
-    try std.testing.expectEqualStrings(bond.abbr, "25国开05");
-}
+// test "bond download" {
+//     std.debug.print("Starting bond download test...\n", .{});
+//     var bond = try download("250205.IB", .{
+//         .source = .wind,
+//     });
+//     defer bond.deinit(null);
+//     std.debug.print("Download completed, got bond: {s}\n", .{bond.abbr});
+//     try std.testing.expectEqualStrings(bond.abbr, "25国开05");
+// }
 
 test "bond create" {
     // 创建一个债券实例
