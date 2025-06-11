@@ -139,13 +139,13 @@ pub fn save(self: *const Bond, path: []const u8, allocator: ?std.mem.Allocator) 
         }
     } else blk: {
         // 文件不存在，检查路径是否看起来像目录（以'/'结尾）或文件
-        if (std.mem.endsWith(u8, path, "/") or std.mem.endsWith(u8, path, "\\")) {
-            // 看起来像目录路径
+        if (!std.mem.endsWith(u8, path, ".json")) {
+            // 目录路径
             var buf: [32]u8 = undefined;
             const file_name = try std.fmt.bufPrint(buf[0..], "{s}.json", .{self.bond_code});
             break :blk try std.fs.path.join(alloc, &.{ path, file_name });
         } else {
-            // 看起来像文件路径
+            // 文件路径
             free_path_flag = false;
             break :blk path;
         }

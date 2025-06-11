@@ -37,7 +37,46 @@ pub usingnamespace io;
 pub usingnamespace attr;
 pub usingnamespace calc;
 
-pub const download = wind_download;
+pub const DownloadSource = enum(u8) { wind = 0 };
+
+pub fn download(code: []const u8, options: struct {
+    save_folder: ?[]const u8 = null,
+    source: DownloadSource = .wind,
+}) !Bond {
+    const save_folder = options.save_folder orelse "bonds_info";
+    switch (options.source) {
+        .wind => {
+            // 直接调用downloadBonds，它会管理自己的Wind实例
+            const bonds = try wind_download.downloadBonds(&[_][]const u8{code}, save_folder);
+
+            if (bonds.len == 0) {
+                ALLOC.free(bonds);
+                return error.NoBondsFound;
+            }
+
+            // 取出第一个bond
+            const first_bond = bonds[0];
+
+            // 释放其他bonds的内存
+            for (bonds[1..]) |*bond| {
+                bond.deinit(null);
+            }
+
+            // 释放数组本身，但保留第一个bond的数据
+            ALLOC.free(bonds);
+
+            return first_bond;
+        },
+    }
+}
+
+test "bond download" {
+    var bond = try download("250215.IB", .{
+        .source = .wind,
+    });
+    defer bond.deinit(null);
+    try std.testing.expectEqualStrings(bond.bond_code, "250215.IB");
+}
 
 test "bond create" {
     // 创建一个债券实例
@@ -54,7 +93,7 @@ test "bond create" {
 }
 
 /// 释放分配的内存
-pub fn deinit(self: *Bond, allocator: ?std.mem.Allocator) void {
+pub fn deinit(self: Bond, allocator: ?std.mem.Allocator) void {
     const alloc = allocator orelse ALLOC;
     alloc.free(self.bond_code);
     alloc.free(self.abbr);

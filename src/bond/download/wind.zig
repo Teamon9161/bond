@@ -10,32 +10,76 @@ const Date = @import("../../Date.zig");
 const ALLOC = @import("../../root.zig").ALLOC;
 const enums = @import("../enums.zig");
 
-// WindPy API structure
+// VT constants matching Python WindPy
+const VT_EMPTY = 0;
+const VT_NULL = 1;
+const VT_I8 = 2;
+const VT_I4 = 3;
+const VT_I2 = 4;
+const VT_I1 = 5;
+const VT_R4 = 6;
+const VT_R8 = 7;
+const VT_DATE = 8;
+const VT_VARIANT = 9;
+const VT_CSTR = 10;
+const VT_BSTR = 11;
+const VT_ARRAY = 0x100;
+const VT_BYREF = 0x200;
+
+// SafeArray union matching Python c_safearray_union
+const SafeArrayUnion = extern union {
+    pbVal: [*]u8,
+    piVal: [*]i16,
+    plVal: [*]i32,
+    pllVal: [*]i64,
+    pyref: ?*anyopaque,
+    pfltVal: [*]f32,
+    pdblVal: [*]f64,
+    pdate: [*]f64,
+    pcstrVal: [*][*:0]const u8,
+    pbstrVal: [*][*:0]const u16,
+    pvarVal: [*]WindVariant,
+};
+
+// SafeArray structure matching Python c_safearray
+const SafeArray = extern struct {
+    cDims: u16,
+    fFeatures: u16,
+    cbElements: u32,
+    cLocks: u32,
+    pvData: SafeArrayUnion,
+    rgsabound: [*]u32,
+};
+
+// WindPy API structure matching Python c_var_union
+const WindVariantUnion = extern union {
+    llVal: i64,
+    lVal: i32,
+    iVal: i16,
+    bVal: u8,
+    fltVal: f32,
+    dblVal: f64,
+    date: f64,
+    cstrVal: [*:0]const u8,
+    bstrVal: [*:0]const u16,
+    pyref: ?*anyopaque,
+    pbVal: [*]u8,
+    piVal: [*]i16,
+    plVal: [*]i32,
+    pllVal: [*]i64,
+    pfltVal: [*]f32,
+    pdlVal: [*]f64,
+    pdate: [*]f64,
+    pcstrVal: [*][*:0]const u8,
+    pbstrVal: [*][*:0]const u16,
+    parray: [*]SafeArray,
+    pvarVal: [*]WindVariant,
+};
+
+// WindVariant structure matching Python c_variant
 const WindVariant = extern struct {
     vt: u16,
-    // This is a simplification of the union in C code
-    val: extern union {
-        llVal: i64,
-        lVal: i32,
-        iVal: i16,
-        bVal: u8,
-        fltVal: f32,
-        dblVal: f64,
-        date: f64,
-        cstrVal: [*:0]const u8,
-        bstrVal: [*:0]const u16,
-        pyref: ?*anyopaque,
-        // Pointer types omitted for simplicity
-        pbVal: [*]u8,
-        piVal: [*]i16,
-        plVal: [*]i32,
-        pllVal: [*]i64,
-        pfltVal: [*]f32,
-        pdblVal: [*]f64,
-        pdate: [*]f64,
-        pcstrVal: [*][*:0]const u8,
-        pbstrVal: [*][*:0]const u16,
-    },
+    val: WindVariantUnion,
 };
 
 const WindApiOut = extern struct {
@@ -276,64 +320,296 @@ pub const Wind = struct {
         return Date.parseIso(date_str);
     }
 
-    // Helper to extract string from WindVariant
-    fn extractString(variant: *const WindVariant, index: usize) ![]const u8 {
-        const vt = variant.vt;
-        if (vt == 10) { // VT_CSTR
-            // 访问字符串数组中的第index个元素
-            const str_array = @as([*][*:0]const u8, @ptrCast(@alignCast(variant.val.pcstrVal)))[index];
-            return std.mem.span(str_array);
-        } else if (vt == 11) { // VT_BSTR
-            // 处理宽字符串如果需要
-            return error.UnsupportedVariantType;
+    // Helper function to get total count from SafeArray (matching Python __getTotalCount)
+    fn getTotalCount(variant: *const WindVariant) usize {
+        if ((variant.vt & VT_ARRAY) == 0) {
+            return 0;
         }
-        return error.UnsupportedVariantType;
+
+        // Check if parray is valid
+        const parray = variant.val.parray;
+        if (@intFromPtr(parray) == 0) {
+            return 0;
+        }
+
+        // Access the first SafeArray element safely
+        const safearray = &parray[0];
+        if (safearray.cDims == 0) {
+            return 0;
+        }
+
+        var totalCount: usize = 1;
+        for (0..safearray.cDims) |i| {
+            totalCount = totalCount * safearray.rgsabound[i];
+        }
+        return totalCount;
     }
 
-    fn extractInt(variant: *const WindVariant, index: usize) !i64 {
-        const vt = variant.vt;
-        if (vt == 4) { // VT_I4
-            const int_array = @as([*]i32, @ptrCast(@alignCast(variant.val.piVal)))[index];
-            return @intCast(int_array);
-        } else if (vt == 6) { // VT_I8
-            const int_array = @as([*]i64, @ptrCast(@alignCast(variant.val.pllVal)))[index];
-            return int_array;
+    // Helper to extract string from WindVariant at specific index
+    // For Wind API, data is organized as data[field_index * symbol_count + symbol_index]
+    fn extractString(variant: *const WindVariant, field_index: usize, symbol_index: usize, symbol_count: usize) ![]const u8 {
+        if ((variant.vt & VT_ARRAY) == 0 or @intFromPtr(variant.val.parray) == 0) {
+            return error.InvalidData;
         }
-        return error.UnsupportedVariantType;
+
+        const safearray = &variant.val.parray[0];
+        const ltype = variant.vt & (~@as(u16, VT_ARRAY));
+        const index = field_index * symbol_count + symbol_index;
+
+        if (ltype == VT_VARIANT) {
+            const variants = safearray.pvData.pvarVal;
+            const target_variant = &variants[index];
+
+            switch (target_variant.vt) {
+                VT_CSTR => {
+                    return std.mem.span(target_variant.val.cstrVal);
+                },
+                VT_BSTR => {
+                    // BSTR is a wide string, we need to convert it
+                    const wide_str = target_variant.val.bstrVal;
+                    var result = std.ArrayList(u8).init(ALLOC);
+                    var i: usize = 0;
+                    while (wide_str[i] != 0) : (i += 1) {
+                        if (wide_str[i] < 128) { // ASCII range
+                            try result.append(@intCast(wide_str[i]));
+                        } else {
+                            try result.append('?'); // Replace non-ASCII with '?'
+                        }
+                    }
+                    return result.toOwnedSlice();
+                },
+                VT_NULL, VT_EMPTY => {
+                    return try ALLOC.dupe(u8, "");
+                },
+                else => {
+                    std.debug.print("Unsupported string variant type in VT_VARIANT: {d} at field_index={d}, symbol_index={d}\n", .{ target_variant.vt, field_index, symbol_index });
+                    return error.UnsupportedStringVariantType;
+                },
+            }
+        } else {
+            switch (ltype) {
+                VT_CSTR => {
+                    const data = safearray.pvData.pcstrVal;
+                    return std.mem.span(data[index]);
+                },
+                VT_BSTR => {
+                    const data = safearray.pvData.pbstrVal;
+                    const wide_str = data[index];
+                    var result = std.ArrayList(u8).init(ALLOC);
+                    var i: usize = 0;
+                    while (wide_str[i] != 0) : (i += 1) {
+                        if (wide_str[i] < 128) { // ASCII range
+                            try result.append(@intCast(wide_str[i]));
+                        } else {
+                            try result.append('?'); // Replace non-ASCII with '?'
+                        }
+                    }
+                    return result.toOwnedSlice();
+                },
+                else => {
+                    std.debug.print("Unsupported string array type: {d} at field_index={d}, symbol_index={d}\n", .{ ltype, field_index, symbol_index });
+                    return error.UnsupportedStringVariantType;
+                },
+            }
+        }
     }
 
-    // Helper to extract double from WindVariant
-    fn extractDouble(variant: *const WindVariant, index: usize) !f64 {
-        const vt = variant.vt;
-        if (vt == 7) { // VT_R8
-            // 访问double数组中的第index个元素
-            const double_array = @as([*]f64, @ptrCast(@alignCast(variant.val.pdblVal)))[index];
-            return double_array;
+    // Helper to extract int from WindVariant at specific index
+    fn extractInt(variant: *const WindVariant, field_index: usize, symbol_index: usize, symbol_count: usize) !i64 {
+        if ((variant.vt & VT_ARRAY) == 0 or @intFromPtr(variant.val.parray) == 0) {
+            return error.InvalidData;
         }
-        return error.UnsupportedVariantType;
+
+        const safearray = &variant.val.parray[0];
+        const ltype = variant.vt & (~@as(u16, VT_ARRAY));
+        const index = field_index * symbol_count + symbol_index;
+
+        if (ltype == VT_VARIANT) {
+            const variants = safearray.pvData.pvarVal;
+            const target_variant = &variants[index];
+
+            switch (target_variant.vt) {
+                VT_I8 => return target_variant.val.llVal,
+                VT_I4 => return @intCast(target_variant.val.lVal),
+                VT_I2 => return @intCast(target_variant.val.iVal),
+                VT_I1 => return @intCast(target_variant.val.bVal),
+                VT_R8 => return @intFromFloat(target_variant.val.dblVal), // Sometimes integers come as doubles
+                VT_R4 => return @intFromFloat(target_variant.val.fltVal),
+                VT_NULL, VT_EMPTY => return 0,
+                else => {
+                    std.debug.print("Unsupported int variant type in VT_VARIANT: {d} at field_index={d}, symbol_index={d}\n", .{ target_variant.vt, field_index, symbol_index });
+                    return error.UnsupportedIntVariantType;
+                },
+            }
+        } else {
+            switch (ltype) {
+                VT_I8 => {
+                    const data = safearray.pvData.pllVal;
+                    return data[index];
+                },
+                VT_I4 => {
+                    const data = safearray.pvData.plVal;
+                    return @intCast(data[index]);
+                },
+                VT_I2 => {
+                    const data = safearray.pvData.piVal;
+                    return @intCast(data[index]);
+                },
+                VT_R8 => {
+                    const data = safearray.pvData.pdblVal;
+                    return @intFromFloat(data[index]);
+                },
+                VT_R4 => {
+                    const data = safearray.pvData.pfltVal;
+                    return @intFromFloat(data[index]);
+                },
+                else => {
+                    std.debug.print("Unsupported int array type: {d} at field_index={d}, symbol_index={d}\n", .{ ltype, field_index, symbol_index });
+                    return error.UnsupportedIntVariantType;
+                },
+            }
+        }
     }
 
-    // Helper to extract date from WindVariant
-    fn extractDate(variant: *const WindVariant, index: usize) !Date {
-        const vt = variant.vt;
-        if (vt == 8) { // VT_DATE
-            // 访问日期数组中的第index个元素
-            const date_value = @as([*]f64, @ptrCast(@alignCast(variant.val.pdate)))[index];
-
-            // Wind日期存储为自1899-12-30以来的天数
-            const epoch_date = try Date.create(1899, 12, 30);
-            return epoch_date.shiftDays(@intFromFloat(date_value));
+    // Helper to extract double from WindVariant at specific index
+    fn extractDouble(variant: *const WindVariant, field_index: usize, symbol_index: usize, symbol_count: usize) !f64 {
+        if ((variant.vt & VT_ARRAY) == 0 or @intFromPtr(variant.val.parray) == 0) {
+            return error.InvalidData;
         }
-        return error.UnsupportedVariantType;
+
+        const safearray = &variant.val.parray[0];
+        const ltype = variant.vt & (~@as(u16, VT_ARRAY));
+        const index = field_index * symbol_count + symbol_index;
+
+        if (ltype == VT_VARIANT) {
+            const variants = safearray.pvData.pvarVal;
+            const target_variant = &variants[index];
+
+            switch (target_variant.vt) {
+                VT_R8 => {
+                    return target_variant.val.dblVal;
+                },
+                VT_R4 => {
+                    return @floatCast(target_variant.val.fltVal);
+                },
+                VT_I4 => {
+                    return @floatFromInt(target_variant.val.lVal);
+                },
+                VT_I8 => {
+                    return @floatFromInt(target_variant.val.llVal);
+                },
+                VT_I2 => {
+                    return @floatFromInt(target_variant.val.iVal);
+                },
+                VT_NULL, VT_EMPTY => {
+                    return 0.0;
+                },
+                else => {
+                    std.debug.print("Unsupported double variant type in VT_VARIANT: {d} at field_index={d}, symbol_index={d}\n", .{ target_variant.vt, field_index, symbol_index });
+                    return error.UnsupportedDoubleVariantType;
+                },
+            }
+        } else {
+            switch (ltype) {
+                VT_R8 => {
+                    const data = safearray.pvData.pdblVal;
+                    return data[index];
+                },
+                VT_R4 => {
+                    const data = safearray.pvData.pfltVal;
+                    return @floatCast(data[index]);
+                },
+                VT_I4 => {
+                    const data = safearray.pvData.plVal;
+                    return @floatFromInt(data[index]);
+                },
+                VT_I8 => {
+                    const data = safearray.pvData.pllVal;
+                    return @floatFromInt(data[index]);
+                },
+                else => {
+                    std.debug.print("Unsupported double array type: {d} at field_index={d}, symbol_index={d}\n", .{ ltype, field_index, symbol_index });
+                    return error.UnsupportedDoubleVariantType;
+                },
+            }
+        }
+    }
+
+    // Helper to extract date from WindVariant at specific index
+    fn extractDate(variant: *const WindVariant, field_index: usize, symbol_index: usize, symbol_count: usize) !Date {
+        if ((variant.vt & VT_ARRAY) == 0 or @intFromPtr(variant.val.parray) == 0) {
+            return error.InvalidData;
+        }
+
+        const safearray = &variant.val.parray[0];
+        const ltype = variant.vt & (~@as(u16, VT_ARRAY));
+        const index = field_index * symbol_count + symbol_index;
+
+        if (ltype == VT_VARIANT) {
+            const variants = safearray.pvData.pvarVal;
+            const target_variant = &variants[index];
+
+            switch (target_variant.vt) {
+                VT_DATE => {
+                    const date_value = target_variant.val.date;
+                    // Wind日期存储为自1899-12-30以来的天数
+                    const epoch_date = try Date.create(1899, 12, 30);
+                    return epoch_date.shiftDays(@intFromFloat(date_value));
+                },
+                VT_R8 => {
+                    const date_value = target_variant.val.dblVal;
+                    // Wind日期存储为自1899-12-30以来的天数
+                    const epoch_date = try Date.create(1899, 12, 30);
+                    return epoch_date.shiftDays(@intFromFloat(date_value));
+                },
+                VT_R4 => {
+                    const date_value = target_variant.val.fltVal;
+                    // Wind日期存储为自1899-12-30以来的天数
+                    const epoch_date = try Date.create(1899, 12, 30);
+                    return epoch_date.shiftDays(@intFromFloat(date_value));
+                },
+                VT_NULL, VT_EMPTY => {
+                    // Return epoch date for null/empty dates
+                    return try Date.create(1970, 1, 1);
+                },
+                else => {
+                    std.debug.print("Unsupported date variant type in VT_VARIANT: {d} at field_index={d}, symbol_index={d}\n", .{ target_variant.vt, field_index, symbol_index });
+                    return error.UnsupportedDateVariantType;
+                },
+            }
+        } else {
+            switch (ltype) {
+                VT_DATE => {
+                    const data = safearray.pvData.pdate;
+                    const date_value = data[index];
+                    // Wind日期存储为自1899-12-30以来的天数
+                    const epoch_date = try Date.create(1899, 12, 30);
+                    return epoch_date.shiftDays(@intFromFloat(date_value));
+                },
+                VT_R8 => {
+                    const data = safearray.pvData.pdblVal;
+                    const date_value = data[index];
+                    // Wind日期存储为自1899-12-30以来的天数
+                    const epoch_date = try Date.create(1899, 12, 30);
+                    return epoch_date.shiftDays(@intFromFloat(date_value));
+                },
+                VT_R4 => {
+                    const data = safearray.pvData.pfltVal;
+                    const date_value = data[index];
+                    // Wind日期存储为自1899-12-30以来的天数
+                    const epoch_date = try Date.create(1899, 12, 30);
+                    return epoch_date.shiftDays(@intFromFloat(date_value));
+                },
+                else => {
+                    std.debug.print("Unsupported date array type: {d} at field_index={d}, symbol_index={d}\n", .{ ltype, field_index, symbol_index });
+                    return error.UnsupportedDateVariantType;
+                },
+            }
+        }
     }
 
     // Fetch bond information from Wind
     pub fn fetchSymbols(self: *Wind, symbols: []const []const u8, save_folder: ?[]const u8) ![]Bond {
-        // if (!self.isConnectedToWind()) {
-        //     try self.login();
-        //     defer self.logout() catch {};
-        // }
-
         var bonds = std.ArrayList(Bond).init(ALLOC);
         errdefer {
             for (bonds.items) |*bond| {
@@ -369,12 +645,31 @@ pub const Wind = struct {
         try options_buf.append(0); // Null-terminate the string
 
         if (self.wss) |wss_fn| {
+            std.debug.print("Calling Wind wss function...\n", .{});
+            std.debug.print("Symbols: {s}\n", .{symbols_buf.items[0 .. symbols_buf.items.len - 1]});
+            std.debug.print("Fields: {s}\n", .{fields[0 .. fields.len - 1]});
+            std.debug.print("Options: {s}\n", .{options_buf.items[0 .. options_buf.items.len - 1]});
+
             const result = wss_fn(@ptrCast(symbols_buf.items.ptr), @ptrCast(fields.ptr), @ptrCast(options_buf.items.ptr));
             defer if (self.free_data) |free_fn| free_fn(result);
+
+            std.debug.print("Wind API call completed\n", .{});
+            std.debug.print("ErrorCode: {d}\n", .{result.*.ErrorCode});
+            std.debug.print("StateCode: {d}\n", .{result.*.StateCode});
+            std.debug.print("RequestID: {d}\n", .{result.*.RequestID});
 
             if (result.*.ErrorCode != 0) {
                 std.debug.print("Wind API Error: {d}\n", .{result.*.ErrorCode});
                 return error.WindApiError;
+            }
+
+            // Debug: Check data structure
+            std.debug.print("Data variant type: {d}\n", .{result.*.Data.vt});
+            std.debug.print("Data has array flag: {}\n", .{(result.*.Data.vt & VT_ARRAY) != 0});
+
+            if ((result.*.Data.vt & VT_ARRAY) != 0) {
+                const totalCount = getTotalCount(&result.*.Data);
+                std.debug.print("Total data count: {d}\n", .{totalCount});
             }
 
             // Based on WindPy.py and download.py, we need to extract:
@@ -389,25 +684,31 @@ pub const Wind = struct {
             // data[8][i] -> interestfrequency (inst_freq)
             // data[9][i] -> latestpar (par_value)
 
+            // Get field count for proper data access
+            const field_count: usize = 10; // We have 10 fields
+
+            std.debug.print("Processing {d} symbols with {d} fields\n", .{ symbols.len, field_count });
+
             for (0..symbols.len) |i| {
                 const symbol = symbols[i];
+                std.debug.print("Processing symbol {d}: {s}\n", .{ i, symbol });
 
-                // Extract each field from the data array
-                // This will depend on the actual structure of the WindApiOut data
+                // Extract each field from the data array using correct indexing
+                // Data is organized as data[field_index * symbol_count + symbol_index]
                 var bond = Bond{
                     .bond_code = try ALLOC.dupe(u8, symbol),
-                    .abbr = try ALLOC.dupe(u8, try extractString(&result.*.Data, i * 10 + 0)),
-                    .cp_rate_1st = try extractDouble(&result.*.Data, i * 10 + 4) / 100.0, // Convert percentage to decimal
-                    .inst_freq = @intCast(try extractInt(&result.*.Data, i * 10 + 8)),
-                    .carry_date = try extractDate(&result.*.Data, i * 10 + 1),
-                    .maturity_date = try extractDate(&result.*.Data, i * 10 + 2),
+                    .abbr = try ALLOC.dupe(u8, try Wind.extractString(&result.*.Data, 0, i, symbols.len)), // sec_name
+                    .cp_rate_1st = std.math.round(try Wind.extractDouble(&result.*.Data, 4, i, symbols.len) * 100) / 10000, // couponrate, convert percentage to decimal
+                    .inst_freq = @intCast(try Wind.extractInt(&result.*.Data, 8, i, symbols.len)), // interestfrequency
+                    .carry_date = try Wind.extractDate(&result.*.Data, 1, i, symbols.len), // carrydate
+                    .maturity_date = try Wind.extractDate(&result.*.Data, 2, i, symbols.len), // maturitydate
                     .mkt = try enums.Market.parse(symbol[symbol.len - 2 ..]),
-                    .par_value = try extractDouble(&result.*.Data, i * 10 + 9),
-                    .cp_type = try getPaymentType(try extractString(&result.*.Data, i * 10 + 5)),
-                    .interest_type = try getInterestType(try extractString(&result.*.Data, i * 10 + 3)),
+                    .par_value = try Wind.extractDouble(&result.*.Data, 9, i, symbols.len), // latestpar
+                    .cp_type = try Wind.getPaymentType(try Wind.extractString(&result.*.Data, 7, i, symbols.len)), // coupon (cp_type)
+                    .interest_type = try Wind.getInterestType(try Wind.extractString(&result.*.Data, 3, i, symbols.len)), // interesttype
                     .base_rate = null,
                     .rate_spread = null,
-                    .day_count = try getBondDayCount(try extractString(&result.*.Data, i * 10 + 6)),
+                    .day_count = try Wind.getBondDayCount(try Wind.extractString(&result.*.Data, 6, i, symbols.len)), // actualbenchmark
                 };
 
                 // Determine inst_freq based on cp_type
@@ -419,6 +720,7 @@ pub const Wind = struct {
                     bond.inst_freq = 0;
                 }
 
+                std.debug.print("Successfully processed bond: {s}\n", .{bond.bond_code});
                 try bonds.append(bond);
 
                 // Save bond data if requested
@@ -434,6 +736,8 @@ pub const Wind = struct {
     }
 };
 
+pub var WIND: ?Wind = null;
+
 // Utility function to download bond data
 pub fn downloadBonds(symbols: []const []const u8, save_folder: ?[]const u8) ![]Bond {
     std.debug.print("Begin download bonds\n", .{});
@@ -442,37 +746,34 @@ pub fn downloadBonds(symbols: []const []const u8, save_folder: ?[]const u8) ![]B
     try wind.login();
     std.debug.print("Connected to Wind\n", .{});
 
-    const out = try wind.fetchSymbols(symbols, save_folder);
+    std.debug.print("Calling fetchSymbols...\n", .{});
+    const out = wind.fetchSymbols(symbols, save_folder) catch |err| {
+        std.debug.print("fetchSymbols failed with error: {}\n", .{err});
+        try wind.logout();
+        wind.deinit();
+        return err;
+    };
+
+    std.debug.print("fetchSymbols completed, got {d} bonds\n", .{out.len});
+
     try wind.logout();
     wind.deinit();
     return out;
 }
 
-// test "wind initialization" {
-//     var wind = try Wind.init();
-
-//     try wind.login();
-
-//     wind.logout() catch |err| {
-//         std.debug.print("Error during logout: {s}\n", .{@errorName(err)});
+// test "wind download with details" {
+//     const symbols = [_][]const u8{"240006.IB"};
+//     const bonds = downloadBonds(&symbols, "test/download/wind") catch |err| {
+//         std.debug.print("Download failed with error: {}\n", .{err});
+//         return;
 //     };
-//     wind.deinit();
+//     defer {
+//         for (bonds) |*bond| {
+//             bond.deinit(null);
+//         }
+//         ALLOC.free(bonds);
+//     }
 // }
-
-test "wind download" {
-    const symbols = [_][]const u8{"250205.IB"};
-
-    const bonds = try downloadBonds(&symbols, null);
-    defer {
-        std.debug.print("Cleaning up bond resources...\n", .{});
-        for (bonds) |*bond| {
-            std.debug.print("Downloaded bond: {s}\n", .{bond.bond_code});
-            bond.deinit(null);
-        }
-    }
-
-    std.debug.print("Wind download test completed successfully\n", .{});
-}
 
 comptime {
     std.testing.refAllDecls(@This());
