@@ -37,7 +37,15 @@ pub usingnamespace io;
 pub usingnamespace attr;
 pub usingnamespace calc;
 
-pub const DownloadSource = enum(u8) { wind = 0 };
+pub const DownloadSource = enum(u8) {
+    wind = 0,
+    pub fn close(self: DownloadSource) void {
+        switch (self) {
+            .wind => wind_download.closeWind(),
+        }
+    }
+};
+const CloseFn = fn () void;
 
 pub fn download(code: []const u8, options: struct {
     save_folder: ?[]const u8 = null,
@@ -46,39 +54,24 @@ pub fn download(code: []const u8, options: struct {
     const save_folder = options.save_folder orelse "bonds_info";
     switch (options.source) {
         .wind => {
-            // 直接调用downloadBonds，它会管理自己的Wind实例
             const bonds = try wind_download.downloadBonds(&[_][]const u8{code}, save_folder);
-
-            if (bonds.len == 0) {
-                ALLOC.free(bonds);
-                return error.NoBondsFound;
-            }
-
-            // 取出第一个bond
-            const first_bond = bonds[0];
-
-            // 释放其他bonds的内存
-            for (bonds[1..]) |*bond| {
-                bond.deinit(null);
-            }
-
-            // 释放数组本身，但保留第一个bond的数据
-            ALLOC.free(bonds);
-
-            return first_bond;
+            defer ALLOC.free(bonds);
+            return bonds[0];
         },
     }
 }
 
-// test "bond download" {
-//     std.debug.print("Starting bond download test...\n", .{});
-//     var bond = try download("250205.IB", .{
-//         .source = .wind,
-//     });
-//     defer bond.deinit(null);
-//     std.debug.print("Download completed, got bond: {s}\n", .{bond.abbr});
-//     try std.testing.expectEqualStrings(bond.abbr, "25国开05");
-// }
+test "bond download" {
+    const code = "250205.IB";
+    std.debug.print("Starting bond download test...\n", .{});
+    var bond = try download(code, .{
+        .source = .wind,
+    });
+    DownloadSource.wind.close();
+    defer bond.deinit(null);
+    std.debug.print("Download completed, got bond: {s}\n", .{bond.abbr});
+    try std.testing.expectEqualStrings(bond.abbr, "25国开05");
+}
 
 test "bond create" {
     // 创建一个债券实例
