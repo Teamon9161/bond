@@ -118,8 +118,9 @@ pub const Wind = struct {
     wss: ?*const fn ([*:0]const u8, [*:0]const u8, [*:0]const u8) callconv(.C) *WindApiOut = null,
     free_data: ?*const fn (*WindApiOut) callconv(.C) void = null,
 
+    const Self = @This();
     // Initialize the Wind library
-    pub fn init() !Wind {
+    pub fn init() !Self {
         var wind = Wind{};
 
         wind.wind_lib = c.dlopen(WIND_LIB_PATH, c.RTLD_NOW);
@@ -135,7 +136,7 @@ pub const Wind = struct {
     }
 
     // Clean up resources
-    pub fn deinit(self: *Wind) void {
+    pub fn deinit(self: Self) void {
         if (self.wind_quant_lib != null) {
             _ = c.dlclose(self.wind_quant_lib.?);
             self.wind_quant_lib = null;
@@ -154,7 +155,7 @@ pub const Wind = struct {
     }
 
     // Connect to Wind API
-    pub fn login(self: *Wind) !void {
+    pub fn login(self: *Self) !void {
         std.debug.print("Starting wind login process...\n", .{});
         // First call setLongValue like in Python does before w.start()
         if (self.setLongValue) |setLongValue_fn| {
@@ -186,7 +187,7 @@ pub const Wind = struct {
     }
 
     // Disconnect from Wind API
-    pub fn logout(self: *Wind) !void {
+    pub fn logout(self: *Self) !void {
         std.debug.print("Starting logout process...\n", .{});
         if (!self.isConnectedToWind()) {
             std.debug.print("Not connected to Wind, skipping logout\n", .{});
@@ -212,7 +213,7 @@ pub const Wind = struct {
     }
 
     // Check if connected to Wind API
-    pub fn isConnectedToWind(self: *Wind) bool {
+    pub fn isConnectedToWind(self: *const Self) bool {
         if (self.isConnected) |is_connected_fn| {
             const result = is_connected_fn() != 0;
             return result;
@@ -654,7 +655,6 @@ fn ensureWindConnected() !void {
     if (WIND == null) {
         WIND = try Wind.init();
     }
-    // try WIND.?.login();
     if (!WIND.?.isConnectedToWind()) {
         try WIND.?.login();
     }
